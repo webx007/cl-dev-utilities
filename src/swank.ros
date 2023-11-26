@@ -1,0 +1,215 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+(progn ;;init forms
+  (ros:ensure-asdf)
+  #+quicklisp(ql:quickload '(:str :log4cl :clingon :bt-semaphore :swank)
+                           :silent t))
+
+(defpackage :ros.script.swank.3907436723
+  (:use :cl))
+(in-package :ros.script.swank.3907436723)
+
+(defun print-thread-info ()
+  (let* ((curr-thread (bt:thread-name (bt:current-thread)))
+         (all-threads (bt:all-threads)))
+    (log:info "Threads:")
+    (loop for th in all-threads
+          do (log:info "  ~A ~:[~;<current>~]" (bt:thread-name th)
+                       (string-equal curr-thread (bt:thread-name th))))
+    (terpri *terminal-io*)))
+
+(defun print-runtime-options ()
+  (log:info "Runtime Options:")
+  (loop for option in '("q - quit"
+                        "l - list quicklisp project folders"
+                        "t - list current threads"
+                        "h - print runtime commands")
+        do (log:info "  ~A" option))
+  (terpri *terminal-io*))
+
+(defun print-quicklisp-folders ()
+  (log:info "Quicklist projects folders:")
+  (loop for dir in ql:*local-project-directories*
+        do (log:info "  ~A" dir))
+  (terpri *terminal-io*))
+
+(defun add-quicklisp-folder (path)
+  (pushnew (truename path) ql:*local-project-directories*)
+  (ql:register-local-projects))
+
+(defun add-cwd-project (folder-name)
+  (let ((dname (car (directory folder-name))))
+    (when (uiop/filesystem:directory-exists-p dname)
+      (log:info "Loading" folder-name)
+      (add-quicklisp-folder dname))))
+
+(defun swank-thread-p (&key (port 4005))
+  (let* ((all-threads (bt:all-threads))
+         (found nil)
+         (swank-thread-name (format nil "Swank ~A" port)))
+    
+    (dolist (th all-threads)
+      (when (str:containsp swank-thread-name (bt:thread-name th))
+        (setf found t)
+        (return found)))))
+
+(defun yes-no-p (&key (msg "Please enter: y/[n]"))
+  (write-line msg *terminal-io*)
+  (case (read-char *terminal-io*)
+    ((#\y #\Y)
+     t)
+    ((#\n #\N)
+     nil)
+    (otherwise
+     nil)))
+
+(defun ask-user ()
+  (let ((ask-again t)
+        (cmd ""))
+    (setf cmd (read-line *terminal-io*))
+    (log:debug "cmd: ~A" cmd)
+    (cond ((member cmd '("q" "quit") :test #'equalp)
+           (setf ask-again (not (yes-no-p))))
+          ((member cmd '("l" "list") :test #'equalp)
+           (print-quicklisp-folders))
+          ((member cmd '("t" "threads") :test #'equalp)
+           (print-thread-info))
+          ((member cmd '("h" "help") :test #'equalp)
+           (print-runtime-options))
+          (t
+           (log:info "...")))
+    ask-again))
+
+(defun top-level/options ()
+  "Creates and returns the options for the top-level command"
+  (list
+   (clingon:make-option
+    :counter
+    :description "Verbosity level"
+    :short-name #\v
+    :long-name "verbose"
+    :key :verbose)
+   
+   (clingon:make-option
+    :integer
+    :description "Port to listen on"
+    :short-name #\p
+    :long-name "port"
+    :initial-value 4005
+    :key :port)
+
+   (clingon:make-option
+    :list
+    :description "Add folder from current working dir to quicklist local projects"
+    :short-name #\a
+    :long-name "add"
+    :initial-value nil
+    :key :current)
+
+   (clingon:make-option
+    :list
+    :description "Quickload ASDF based system"
+    :short-name #\l
+    :long-name "load"
+    :initial-value nil
+    :key :quickload)
+
+   (clingon:make-option
+    :string
+    :description "Evaluate provided init form"
+    :short-name #\e
+    :long-name "eval"
+    :initial-value nil
+    :key :eval)
+   
+   (clingon:make-option
+    :filepath
+    :description "Add specified folder to quicklist projects directory"
+    :short-name #\d
+    :long-name "dir"
+    :initial-value '()
+    :key :projects)))
+
+(defun top-level/handler (cmd)
+  "The top-level handler"
+  (let ((port (clingon:getopt cmd :port))
+        (local-projects-dir (clingon:getopt cmd :projects))
+        (current-projects (clingon:getopt cmd :current))
+        (quick-load (clingon:getopt cmd :quickload))
+        (eval-init (clingon:getopt cmd :eval))
+	      (verbose (clingon:getopt cmd :verbose)))
+
+    (cond ((= verbose 1)
+           (log:config :info
+                       :oneline ))
+
+          ((> verbose 1)
+           (log:config :debug
+                       :oneline)))
+
+    (log:debug "The current verbosity level is set to ~A~%" verbose)
+    
+    (log:info "Swank port: ~A~%" port)
+    (when local-projects-dir (log:debug"Quicklist projects dir, ~A~%" local-projects-dir))
+    (when current-projects (log:debug "Projects to add from working dir, ~A~%" current-projects))
+    
+    (when (and
+           (stringp local-projects-dir)
+           (plusp (length local-projects-dir))
+           (uiop/filesystem:directory-exists-p local-projects-dir))
+      (log:debug "Quicklisp adding projects folder" local-projects-dir)
+      (add-quicklisp-folder local-projects-dir))
+
+    (when (and
+           current-projects
+           (listp current-projects))
+      (log:debug "Looping projects to add ~A" current-projects)
+      (loop for proj in current-projects
+            do (add-cwd-project proj)))
+
+    (ql:quickload quick-load)
+    
+    (swank:create-server :port port :dont-close t)
+
+    (unless (str:emptyp eval-init)
+      (log:debug "Init form: ~a" eval-init)
+      (handler-case
+          (let ((obj (read-from-string eval-init)))
+            (log:info "Evaluating init form")
+            (eval obj))
+
+        (error (condition)
+          (log:warn "Init form error: ~a" condition)
+          (values nil condition))))
+    
+    (let ((th (swank-thread-p :port port)))
+      (when th
+        (log:info "Swanking ...")
+        (ignore-errors
+         (loop while (ask-user)))))
+    
+    (log:warn "Swank you later!")))
+
+(defun top-level/command ()
+  "Creates and returns the top-level command"
+  (clingon:make-command
+   :name "swank"
+   :description "Starts cl swank instance"
+   :version "0.1.0"
+   :license "BSD 2-Clause"
+   :authors '("webx007")
+   :usage "[-v] [-p <PORT>]"
+   :options (top-level/options)
+   :handler #'top-level/handler
+))
+
+(defun main (&rest argv)
+  (declare (ignorable argv))
+  (log:config :sane :pattern "%m%n")
+ 
+  (let ((app (top-level/command)))
+    (clingon:run app argv)))  
+;;; vim: set ft=lisp lisp:

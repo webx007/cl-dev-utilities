@@ -1,0 +1,95 @@
+#+TITLE: Utility script to run Common Lisp code
+#+OPTIONS: toc:nil
+* Overview
+Simple [[https://roswell.github.io][Roswell]] based script to quickly start a swank instance with a custom Common Lisp run-time environment.
+
+* Features
+The following items can be specified at start-up via command-line options:
+- An additional Quicklisp project folder
+- ASDF package(s) to load from working folder
+- Packages to quickload
+- Swank server listen port
+- Initial form to evaluate
+
+* Download
+[[file:src/swank.ros][swank.ros]]
+
+* Dependencies
+- Roswell
+- SBCL
+- Quicklisp
+- Emacs + Slime
+- Common Lisp packages
+  - cl-str
+  - clingon
+  - log4cl
+  - bt-semaphore
+  - swank
+
+ To install the above dependencies, see the Roswell [[https://roswell.github.io/Home.html][guide]].
+
+* Usage
+The script can be invoke from the command-line by running: ~swank.ros~.
+It is recommended to set the executable permission on the script, and add the script to the users shell path.
+
+#+begin_src shell
+swank.ros --help
+NAME:
+  swank - Starts cl swank instance
+
+USAGE:
+  swank [-v] [-p <PORT>]
+
+OPTIONS:
+      --help          Display usage information and exit
+      --version       Display version and exit
+  -a, --add <ITEM>    Add folder from current working dir to quicklist local projects
+  -d, --dir <PATH>    Add specified folder to quicklist projects directory
+  -e, --eval <VALUE>  Evaluate provided init form
+  -l, --load <ITEM>   Quickload ASDF based system
+  -p, --port <INT>    Port to listen on [default: 4005]
+  -v, --verbose       Verbosity level [default: 0]
+#+end_src
+
+** Start swank server
+: swank.ros
+
+** Start swank server on custom port
+: swank.ros -p 4007
+
+** Start swank server and include additional Quicklisp project folder
+: swank.ros -d ~/my-cl-projects
+
+** Add local packages
+: swank.ros -a my-utils -a my-api
+
+** Load quicklisp packages
+: swank.ros -a my-utils -l my-utils
+
+** Start form
+: swank.ros -a my-utils -l my-utils -e '(my-utils:hello-word "webx")'
+
+** Application Runtime
+In addition to connecting to the swank server from Emacs, the running application also support the following run-time commands:
+#+begin_src shell
+swank.ros
+Swank port: 4005
+
+;; Swank started at port: 4005.
+Swanking ...
+h
+Runtime Options:
+  q - quit
+  l - list quicklisp project folders
+  t - list current threads
+  h - print runtime commands
+#+end_src
+
+* Test Environment
+- Linux (Debian 12)
+- Slime 2023.02.15
+- SBCL 2.3.1
+- Roswell 22.12.14.113
+- Quicklisp 2021-02-13
+- Emacs 29.1
+
