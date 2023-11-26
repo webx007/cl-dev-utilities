@@ -67,7 +67,7 @@ OPTIONS:
 : swank.ros -a my-utils -l my-utils
 
 ** Start form
-: swank.ros -a my-utils -l my-utils -e '(my-utils:hello-word "webx")'
+: swank.ros -a my-utils -l my-utils -e '(my-utils:hello-world "webx")'
 
 ** Application Runtime
 In addition to connecting to the swank server from Emacs, the running application also support the following run-time commands:
